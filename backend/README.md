@@ -21,10 +21,10 @@ app/
 │   ├── transcript.py      Upsert by segment id (partial→final)
 │   └── incident.py        Per-field upsert, card assembly, coverage math
 └── services/
-    ├── audio_enhancement.py   ai-coustics wrapper + raw/enhanced taps
-    ├── stt.py                 Gladia streaming client
-    ├── extraction.py          LLM → IncidentCard fields (via repository.incident)
-    └── operator_assist.py     Next-question + alert logic
+    ├── audio_enhancement.py   ai-coustics SDK wrapper; thread-pool, metrics, fallback ✅
+    ├── stt.py                 Gradium streaming client; resample → PCM → partial/final ✅
+    ├── extraction.py          LLM → IncidentCard fields (via repository.incident) 🚧
+    └── operator_assist.py     Next-question + alert logic 🚧
 ```
 
 ## Run
@@ -32,7 +32,7 @@ app/
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e .[dev]
-cp .env.example .env
+cp .env.example .env   # set AIC_SDK_LICENSE and GRADIUM_API_KEY at minimum
 uvicorn app.main:app --reload --port 8000
 ```
 

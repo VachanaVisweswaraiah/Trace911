@@ -1,7 +1,7 @@
 # trace911
 
 Real-time emergency call intelligence. Audio enhancement (ai-coustics) + STT
-(Gladia) + live incident extraction, surfaced to a single operator workspace.
+(Gradium) + live incident extraction, surfaced to a single operator workspace.
 
 The operator is always in control — the AI extracts and suggests; only the
 operator can `confirm`.
@@ -49,7 +49,7 @@ and `ws://localhost:8000/ws/calls/{call_id}` (live stream).
                                                        │
                                                        ▼
    audio in ──► [audio_enhancement] ──► [stt] ──► [extraction] ──► [operator_assist]
-                  ai-coustics            Gladia      LLM            rules + LLM polish
+                  ai-coustics           Gradium      LLM            rules + LLM polish
                        │                   │           │                   │
                        └──► metrics ◄──────┴──► transcript          incident card
                                                       │                    │
@@ -108,13 +108,13 @@ backend/app/
 - `repository.incident.patch(db, call_id, IncidentPatchRequest, t_now)` — operator confirmations.
 - `repository.incident.assemble_card(rows)` — pure function, also computes `field_coverage`, `confirmed_coverage`, `dispatch_readiness`.
 
-**Services (stubbed — pick one and implement)**
+**Services**
 
-- `services.audio_enhancement.enhance_and_meter(call_id, pcm_bytes, sample_rate)` — run ai-coustics, emit `audio_window` events with raw vs enhanced metrics.
-- `services.stt.stream_transcribe(call_id)` — Gladia WS, push enhanced PCM, `repository.transcript.upsert(...)` + `broker.publish('transcript', ...)`.
-- `services.extraction.update_from_transcript(incident, transcript)` — LLM → call `repository.incident.upsert_extracted` per field.
-- `services.extraction.build_summary(transcript, incident)` — narrative for the handoff.
-- `services.operator_assist.compute_assist(incident, transcript)` → `OperatorAssist` (next question + critical missing).
+- `services.audio_enhancement.enhance_and_meter(call_id, wav_bytes)` ✅ — ai-coustics SDK in a thread-pool executor; emits `audio_window` + `metrics` events. Falls back to raw audio if the SDK is unavailable.
+- `services.stt.stream_transcribe(call_id, wav_bytes)` ✅ — Gradium WS; resamples to 24kHz, streams PCM, upserts partial→final segments, publishes `transcript` events.
+- `services.extraction.update_from_transcript(incident, transcript)` 🚧 — LLM → call `repository.incident.upsert_extracted` per field. **Not yet implemented.**
+- `services.extraction.build_summary(transcript, incident)` 🚧 — narrative for the dispatch handoff. **Not yet implemented.**
+- `services.operator_assist.compute_assist(incident, transcript)` 🚧 → `OperatorAssist` (next question + critical missing). **Not yet implemented.**
 
 ### Standard flow when a service produces something
 
@@ -173,8 +173,8 @@ Tables auto-create on startup. Default DB path: `./trace911.db` (gitignored).
 
 ## Where to start (per teammate)
 
-- **Audio + metrics:** `services/audio_enhancement.py` + `repository.calls.update_metrics`. See `docs/metrics.md` for the six metrics; ai-coustics setup pattern is in the docstring.
-- **STT:** `services/stt.py` + `repository.transcript.upsert`. Stream Gladia, push partial→final segments.
-- **Extraction:** `services/extraction.py` + `repository.incident.upsert_extracted`. LLM over rolling transcript → field updates with confidence.
-- **Assist:** `services/operator_assist.py`. Priority list is already in the file — start with deterministic rules.
+- **Audio + metrics:** ✅ Done. `services/audio_enhancement.py` is wired and live.
+- **STT:** ✅ Done. `services/stt.py` streams to Gradium; set `GRADIUM_API_KEY` in `.env`.
+- **Extraction:** 🚧 **Up next.** `services/extraction.py` — LLM over rolling transcript → field updates via `repository.incident.upsert_extracted`. Called automatically after each final transcript segment once implemented.
+- **Assist:** 🚧 `services/operator_assist.py`. Priority list is already in the file — start with deterministic rules, then layer LLM polish.
 - **Frontend:** drop the Lovable export into `frontend/`. Wiring snippet in `frontend/README.md`.
