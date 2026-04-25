@@ -175,6 +175,8 @@ async def send_audio(
     chunk_num = 0
     # Track progress — print every PROGRESS_INTERVAL_S seconds of audio streamed
     next_progress = PROGRESS_INTERVAL_S
+    # Flag so main() knows if the server closed early
+    ws_closed_early = False
 
     while offset < total_bytes:
         chunk = pcm_data[offset : offset + bytes_per_chunk]
@@ -187,7 +189,15 @@ async def send_audio(
             "type": "audio",
             "audio": base64.b64encode(chunk).decode("ascii"),
         }
-        await ws.send_str(json.dumps(audio_msg))
+        try:
+            await ws.send_str(json.dumps(audio_msg))
+        except (aiohttp.ClientConnectionError,
+                aiohttp.WSServerHandshakeError,
+                ConnectionResetError,
+                BrokenPipeError):
+            # Server closed the WebSocket mid-stream — stop sending gracefully
+            ws_closed_early = True
+            break
 
         offset += bytes_per_chunk
         chunk_num += 1
@@ -204,11 +214,22 @@ async def send_audio(
         # Sleep to simulate real-time streaming (80ms per chunk)
         await asyncio.sleep(CHUNK_DURATION_S)
 
-    # ── Signal end of stream ──
-    # Tell Gradium we're done sending audio. It will process any remaining
-    # buffered audio and send final transcript results.
-    await ws.send_str(json.dumps({"type": "end_of_stream"}))
-    print(f"      Audio stream complete — {duration:.1f}s sent in {chunk_num} chunks")
+    if ws_closed_early:
+        seconds_streamed = (offset // 2) / GRADIUM_SAMPLE_RATE
+        print(f"      [Stream closed by server — saving transcript...] "
+              f"(sent {seconds_streamed:.1f}s of {duration:.1f}s)")
+    else:
+        # ── Signal end of stream ──
+        # Tell Gradium we're done sending audio. It will process any remaining
+        # buffered audio and send final transcript results.
+        try:
+            await ws.send_str(json.dumps({"type": "end_of_stream"}))
+            print(f"      Audio stream complete — {duration:.1f}s sent in {chunk_num} chunks")
+        except (aiohttp.ClientConnectionError,
+                aiohttp.WSServerHandshakeError,
+                ConnectionResetError,
+                BrokenPipeError):
+            print("      [Stream closed by server — saving transcript...]")
 
 
 # ─── Step 4: Receive and display transcript ──────────────────────────────────────
@@ -274,12 +295,13 @@ async def receive_transcript(
 
 # ─── Step 5: Save transcript and finish ─────────────────────────────────────────
 
-def save_transcript(transcript: str, duration: float) -> str:
-    """Save the accumulated transcript to transcript.txt with a header."""
+def save_transcript(transcript: str, duration: float, output_path: str = None) -> str:
+    """Save the accumulated transcript to a file with a header."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     word_count = len(transcript.split()) if transcript.strip() else 0
 
-    output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)) , "transcript.txt")
+    if output_path is None:
+        output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "transcript.txt")
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(f"Transcript — {timestamp}\n")
         f.write(f"Duration: {duration:.1f}s | Words: {word_count}\n")
@@ -300,6 +322,11 @@ async def main():
         description="Stream a WAV file to Gradium STT and print live transcript."
     )
     parser.add_argument("input", help="Path to input .wav file")
+    parser.add_argument(
+        "-o", "--output",
+        default=None,
+        help="Path for transcript output file (default: transcript.txt in script directory)",
+    )
     args = parser.parse_args()
 
     input_path = args.input
@@ -338,13 +365,19 @@ async def main():
             # receive_transcript() is the SOLE reader for the rest of the session.
             # asyncio.gather runs both at the same time so we see live transcript
             # output as audio chunks are being sent.
+            #
+            # If send_audio() hits a ConnectionClosed error, it returns early.
+            # receive_transcript() will see the closed connection and also return
+            # with whatever transcript it collected. asyncio.gather waits for
+            # BOTH to finish, so we always get the full transcript even on early close.
             _, transcript = await asyncio.gather(
                 send_audio(ws, pcm_data, duration),
                 receive_transcript(ws),
             )
         except Exception as e:
+            # Catch-all for truly unexpected errors (not connection close)
             print(f"\nError during streaming: {e}", file=sys.stderr)
-            # Save whatever transcript we collected before the error
+            # transcript may have partial data from before the error
         finally:
             await ws.close()
             await session.close()
@@ -356,9 +389,10 @@ async def main():
     # we save whatever we collected.
     if not transcript.strip():
         print("\nNo transcript text received from Gradium.", file=sys.stderr)
-        sys.exit(1)
+        # Still create the file so the user knows the script ran
+        transcript = "(no transcript received — connection may have closed early)"
 
-    save_transcript(transcript, duration)
+    save_transcript(transcript, duration, args.output)
 
 
 if __name__ == "__main__":
