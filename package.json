@@ -1,0 +1,18 @@
+{
+  "name": "trace911",
+  "private": true,
+  "version": "0.1.0",
+  "description": "trace911 monorepo — backend (FastAPI) + frontend (Lovable React).",
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c blue,magenta \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev:backend": "cd backend && .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+    "dev:frontend": "if [ -f frontend/package.json ]; then cd frontend && npm run dev -- --port 5173; else echo '• frontend/package.json missing — drop the Lovable export into frontend/'; fi",
+    "install:backend": "cd backend && (test -d .venv || python3 -m venv .venv) && .venv/bin/pip install -q --upgrade pip && .venv/bin/pip install -q -e '.[dev]' && (test -f .env || cp .env.example .env)",
+    "install:frontend": "if [ -f frontend/package.json ]; then cd frontend && npm install; else echo '• frontend/package.json missing — skip'; fi",
+    "install:all": "npm run install:backend && npm run install:frontend",
+    "clean": "rm -rf backend/.venv frontend/node_modules backend/trace911.db backend/test_trace911.db"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}
