@@ -12,8 +12,15 @@ operator can `confirm`.
 trace911/
 ├── backend/    FastAPI + SQLite. Ingestion → enhancement → STT → extraction → WS
 ├── frontend/   Drop the Lovable React app here (Vite + React + JS)
+├── calls/      Standalone CLI scripts (dev tooling — not part of the live pipeline)
+│               clean_audio.py       MP3 → 16kHz WAV → ai-coustics (writes _cleaned.wav)
+│               stream_transcribe.py WAV → Gradium STT (writes transcript.txt)
 └── docs/       app-spec.md · api-contracts.md · websocket-events.md · metrics.md · data-model.md
 ```
+
+`calls/` was the original prototype. The same logic now lives in `backend/app/services/` and runs
+as part of the HTTP pipeline (`POST /audio` → enhance → transcribe → WebSocket push). Use the
+scripts directly to test audio or STT in isolation without starting the full backend.
 
 ## Quickstart
 
@@ -34,6 +41,10 @@ npm install && npm run install:all
 npm run dev
 ```
 
+After `make install`, open `backend/.env` and fill in `AIC_SDK_LICENSE` and
+`GRADIUM_API_KEY` at minimum. `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` will be
+needed once extraction is implemented.
+
 Until the Lovable export lands in `frontend/`, `make dev` runs the backend
 only and prints a note. The frontend talks to `http://localhost:8000` (REST)
 and `ws://localhost:8000/ws/calls/{call_id}` (live stream).
@@ -43,30 +54,36 @@ and `ws://localhost:8000/ws/calls/{call_id}` (live stream).
 ## Architecture in one picture
 
 ```
-                 ┌──── REST /api/calls/* ──────────────┐
- Operator UI ────┤                                     │
- (Lovable React) └──── WS /ws/calls/{id}  ◀── push ────│
-                                                       │
-                                                       ▼
-   audio in ──► [audio_enhancement] ──► [stt] ──► [extraction] ──► [operator_assist]
-                  ai-coustics           Gradium      LLM            rules + LLM polish
-                       │                   │           │                   │
+                 ┌──── REST /api/calls/* ──────────────────────────────┐
+ Operator UI ────┤                                                     │
+ (Lovable React) └──── WS /ws/calls/{id}  ◀── push  /  recv ─────────►│
+                         │ audio_frame msg                             │
+                         ▼                                             │
+   audio in ──► [audio_enhancement] ──► [stt] ──► [extraction 🚧] ──► [operator_assist 🚧]
+   (REST POST     ai-coustics           Gradium      LLM               rules + LLM polish
+    or WS frame)       │                   │              │                   │
                        └──► metrics ◄──────┴──► transcript          incident card
-                                                      │                    │
-                                                      ▼                    ▼
-                                              ┌────────── SQLite ──────────┐
-                                              │ calls / segments / fields  │
-                                              └─────────────┬──────────────┘
-                                                            │
-                                                  app.pubsub.broker  (in-process)
-                                                            │
-                                                            ▼
-                                                  WebSocket fan-out
+                                                         │                    │
+                                                         ▼                    ▼
+                                                 ┌────────── SQLite ──────────┐
+                                                 │ calls / segments / fields  │
+                                                 └─────────────┬──────────────┘
+                                                               │
+                                                     app.pubsub.broker  (in-process)
+                                                               │
+                                                               ▼
+                                                     WebSocket fan-out
 ```
 
 **Two channels, one source of truth.** State lives in SQLite. The broker is
 just a notification bus — slow WS clients can drop events and recover by
 re-fetching the snapshot via `GET /api/calls/{id}`.
+
+**Audio can enter two ways:**
+- **Upload** — `POST /api/calls/{id}/audio` with a WAV file. Returns 202 immediately; enhancement → transcription run as a `BackgroundTask`.
+- **Live** — send `{"type": "audio_frame", "payload": {"audio": "<base64 WAV>"}}` over the WebSocket. Same pipeline fires per frame.
+
+**🚧 = not yet wired.** Enhancement and STT are live. Extraction and operator assist raise `NotImplementedError` — they are the next two pieces to implement.
 
 ---
 
@@ -89,11 +106,18 @@ backend/app/
 
 | Object | Where | What it is |
 | --- | --- | --- |
-| `Call`, `TranscriptSegment`, `IncidentField` | `models/orm.py` | SQLAlchemy tables. The DB. |
-| `IncidentCard`, `TranscriptSegment`, `MetricsSnapshot`, `OperatorAssist`, `CallSnapshot` | `schemas/` | Pydantic DTOs. The API surface. |
+| `Call`, `TranscriptSegment`, `IncidentField` | `models/orm.py` | SQLAlchemy tables — the DB. |
+| `CallCreateRequest` | `schemas/call.py` | `source: "upload" \| "live"` |
+| `CallCreateResponse` | `schemas/call.py` | `call_id`, `started_at`, `ws_url` |
+| `CallSnapshot` | `schemas/call.py` | Full state: `transcript`, `incident`, `metrics`, `assist` |
+| `CallSummary` | `schemas/call.py` | `narrative`, `incident`, `unconfirmed: list[str]`, `evidence` |
+| `IncidentCard` | `schemas/incident.py` | 11 `IncidentField` objects + `field_coverage`, `confirmed_coverage`, `dispatch_readiness` |
 | `IncidentField.status` | `schemas/incident.py` | `missing` \| `heard` \| `suggested` \| `confirmed_by_operator` \| `uncertain` \| `contradicted` |
-| `FIELD_NAMES` (the 11 tracked fields) | `schemas/incident.py` | `incident_type`, `location`, `breathing`, `consciousness`, … |
-| `broker` | `pubsub.py` | `subscribe(call_id)`, `publish(call_id, type, payload)`, `t_for(call_id)` |
+| `FIELD_NAMES` (the 11 tracked fields) | `schemas/incident.py` | `incident_type`, `location`, `breathing`, `consciousness`, `number_of_people`, `injury_status`, `immediate_danger`, `weapons`, `fire_or_smoke`, `caller_callback`, `access_instructions` |
+| `MetricsSnapshot` | `schemas/metrics.py` | 5 sub-objects: `audio` (noise/lift), `vad` (turns/ratio), `transcript` (health/revisions), `incident` (coverage/timing), `assist` (suggestions/overrides) |
+| `OperatorAssist` | `schemas/call.py` | `next_question: OperatorAssistSuggestion`, `critical_missing: list[str]`, `high_risk_unconfirmed: list[HighRiskUnconfirmed]` |
+| `TranscriptSegment` | `schemas/transcript.py` | `id`, `t_start`, `t_end`, `speaker`, `text`, `is_final`, `confidence`, `entities` |
+| `broker` | `pubsub.py` | `subscribe(call_id)`, `publish(call_id, type, payload)`, `t_for(call_id)`. Queue size 256 — slow consumers get events dropped. |
 | `SessionLocal` / `get_session` | `db.py` | Async session factory + FastAPI dep |
 
 ### Key functions (where to plug in)
@@ -133,14 +157,15 @@ DB first, then broadcast. UI receives the WS event and re-renders.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/calls` | Start a call. Returns `call_id` + `ws_url`. |
+| `GET`  | `/health` | Health probe. Returns `{"status": "ok"}`. |
+| `POST` | `/api/calls` | Start a call (`source: "upload"\|"live"`). Returns `call_id`, `started_at`, `ws_url`. |
 | `GET`  | `/api/calls/{id}` | Full `CallSnapshot` (transcript + incident + metrics + assist). |
-| `POST` | `/api/calls/{id}/audio` | Upload mode: post a WAV. |
-| `PATCH`| `/api/calls/{id}/incident` | Operator confirms / overrides fields. |
-| `POST` | `/api/calls/{id}/end` | End call → returns `CallSummary`. |
-| `GET`  | `/api/calls/{id}/summary` | Dispatch handoff. |
+| `POST` | `/api/calls/{id}/audio` | Upload a WAV. Returns 202 immediately; enhancement → transcription run as a background task. |
+| `PATCH`| `/api/calls/{id}/incident` | Operator confirms / overrides fields. Publishes `incident` WS event. |
+| `POST` | `/api/calls/{id}/end` | End call → returns `CallSummary`. Publishes `call_ended` WS event. |
+| `GET`  | `/api/calls/{id}/summary` | Dispatch handoff (`CallSummary`). |
 | `GET`  | `/api/calls/{id}/metrics` | Latest `MetricsSnapshot`. |
-| `WS`   | `/ws/calls/{id}` | Live: server pushes `transcript`, `incident`, `metrics`, `audio_window`, `assist`, `alert`, `call_ended`. |
+| `WS`   | `/ws/calls/{id}` | **Bidirectional.** On connect: server pushes `snapshot` (full state replay). Ongoing server→client events: `transcript`, `incident`, `metrics`, `audio_window`, `assist`, `alert`, `call_ended`. Client→server messages: `audio_frame` (base64 WAV → triggers pipeline), `operator_event` (routed to extraction/assist once implemented). |
 
 Full payloads in `docs/api-contracts.md`. WS event catalog in `docs/websocket-events.md`.
 
