@@ -12,11 +12,15 @@ class Settings(BaseSettings):
     db_echo: bool = False
 
     ai_coustics_api_key: str = ""
+    aic_sdk_license: str = ""          # AIC_SDK_LICENSE — direct SDK path
+    gradium_api_key: str = ""          # Gradium STT WebSocket API key
     gladia_api_key: str = ""
     anthropic_api_key: str = ""
     openai_api_key: str = ""
 
     aic_model: str = "QUAIL_VF_L"
+    aic_model_id: str = "quail-vf-2.1-l-16khz"   # direct SDK model ID
+    aic_model_dir: str = "./models"               # where the SDK caches the model
     aic_enhancement_level: float = 0.8
     aic_vad_sensitivity: float = 6.0
     aic_vad_speech_hold: float = 0.03

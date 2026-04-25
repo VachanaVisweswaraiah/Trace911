@@ -54,10 +54,18 @@ async def _forward(ws: WebSocket, queue: asyncio.Queue) -> None:
 
 async def _handle_client_message(call_id: str, msg: dict) -> None:
     kind = msg.get("type")
+
     if kind == "audio_frame":
-        # TODO: push frame into services.audio_enhancement
+        # Payload: {"audio": "<base64 WAV bytes>"}
+        import asyncio, base64
+        from app.api.calls import _run_pipeline
+        raw = msg.get("payload", {}).get("audio", "")
+        if raw:
+            wav_bytes = base64.b64decode(raw)
+            asyncio.create_task(_run_pipeline(call_id, wav_bytes))
         return
+
     if kind == "operator_event":
         payload = msg.get("payload") or {}
-        # TODO: route confirm / override / ask to extraction + assist services
+        # TODO: route confirm / override to extraction + assist services
         await broker.publish(call_id, "operator_event_ack", payload)

@@ -12,7 +12,19 @@ build/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# Audio files
 *.wav
 *.mp3
 *.opus
 !docs/samples/*.wav
+
+# ai-coustics model files (large binaries — download on first run)
+*.aicmodel
+models/
+
+# Pipeline output files
+calls/transcript.txt
+
+# SQLite DB (runtime artifact)
+*.db

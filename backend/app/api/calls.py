@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
@@ -41,14 +41,46 @@ async def get_call(call_id: str, db: AsyncSession = Depends(get_session)) -> Cal
 async def upload_audio(
     call_id: str,
     audio: UploadFile = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: AsyncSession = Depends(get_session),
 ) -> dict[str, int]:
     call = await calls_repo.get(db, call_id)
     if call is None:
         raise HTTPException(404, "call not found")
     data = await audio.read()
-    # TODO: hand to services.audio_enhancement → stt → extraction pipeline
+    background_tasks.add_task(_run_pipeline, call_id, data)
     return {"accepted_bytes": len(data)}
+
+
+async def _run_pipeline(call_id: str, wav_bytes: bytes) -> None:
+    """Enhance → transcribe. Runs as a background task after the HTTP response returns."""
+    from app.services import audio_enhancement, stt
+
+    await broker.publish(
+        call_id, "alert", {"message": "Pipeline started: enhancing audio…", "severity": "info"}
+    )
+    try:
+        enhanced = await audio_enhancement.enhance_and_meter(call_id, wav_bytes)
+    except Exception as exc:
+        await broker.publish(
+            call_id, "alert", {"message": f"Enhancement error: {exc}", "severity": "error"}
+        )
+        return
+
+    await broker.publish(
+        call_id, "alert", {"message": "Enhancement done — transcribing…", "severity": "info"}
+    )
+    try:
+        await stt.stream_transcribe(call_id, enhanced)
+    except Exception as exc:
+        await broker.publish(
+            call_id, "alert", {"message": f"Transcription error: {exc}", "severity": "error"}
+        )
+        return
+
+    await broker.publish(
+        call_id, "alert", {"message": "Transcription complete.", "severity": "info"}
+    )
 
 
 @router.post("/calls/{call_id}/end", response_model=CallSummary)
