@@ -21,12 +21,11 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 from google import genai
-
 from speak import speak
 
 # ─── Configuration ──────────────────────────────────────────────────────────────
-GEMINI_MODEL = "gemini-2.5-flash-lite"
-POLL_INTERVAL = 30  # seconds between transcript checks
+GEMINI_MODEL = "gemini-2.5-flash"
+POLL_INTERVAL = 15
 ANALYSIS_LOG = "analysis_log.json"
 
 # The system prompt tells Gemini exactly what JSON structure to return.
@@ -195,24 +194,6 @@ def save_to_log(log_path: str, entry: dict) -> None:
         json.dump(log, f, indent=2, ensure_ascii=False)
 
 
-# ─── TTS Alert Builder ──────────────────────────────────────────────────────────
-
-
-def build_alert_text(urgency: str, analysis: dict) -> str:
-    """Build the spoken alert text based on urgency level and analysis data."""
-    summary = analysis.get("summary", "")
-    action = analysis.get("dispatcher_action", "")
-
-    if urgency == "critical":
-        return f"Critical alert. {summary}. Recommended action: {action}"
-    elif urgency == "high":
-        return f"{summary}. Action needed: {action}"
-    elif urgency == "medium":
-        return summary
-    else:
-        return ""
-
-
 # ─── Main loop ───────────────────────────────────────────────────────────────────
 
 
@@ -263,6 +244,7 @@ def main():
 
     last_content = ""  # Track what we've already sent to Gemini
     last_spoken_urgency = None  # Track last spoken urgency to avoid repeats
+    auto_dispatched = False  # Track whether we've already auto-dispatched
     start_time = time.time()
 
     while True:
@@ -294,17 +276,28 @@ def main():
                     }
                     save_to_log(log_path, log_entry)
 
-                    # TTS alert — speak when urgency changes
+                    # TTS alerts — only two situations
                     urgency = analysis.get("urgency", "unknown").lower()
-                    if urgency != last_spoken_urgency and urgency in ("critical", "high", "medium"):
-                        alert_text = build_alert_text(urgency, analysis)
-                        if alert_text:
-                            print(f'[TTS] Speaking: "{alert_text}"')
-                            threading.Thread(
-                                target=speak, args=(alert_text, gradium_api_key),
-                                daemon=True,
-                            ).start()
-                            last_spoken_urgency = urgency
+
+                    # Only speak when urgency becomes critical for the first time
+                    if urgency == "critical" and last_spoken_urgency != "critical":
+                        last_spoken_urgency = "critical"
+                        emergency = analysis.get("emergency_type", "emergency")
+                        address = analysis.get("key_info", {}).get("address")
+                        if address:
+                            alert = f"Critical. {emergency}. {address}."
+                        else:
+                            alert = f"Critical {emergency} detected."
+                        threading.Thread(target=speak, args=(alert, gradium_api_key), daemon=True).start()
+                        print(f"[TTS] {alert}")
+
+                    # Only speak when auto-dispatching (on a subsequent cycle after critical)
+                    elif urgency == "critical" and auto_dispatched is False and last_spoken_urgency == "critical":
+                        auto_dispatched = True
+                        address = analysis.get("key_info", {}).get("address", "location confirmed")
+                        alert = f"Units dispatched to {address}."
+                        threading.Thread(target=speak, args=(alert, gradium_api_key), daemon=True).start()
+                        print(f"[TTS] {alert}")
                 else:
                     print("      [Gemini] No valid response — will retry next cycle")
             # else: no new content, skip this cycle

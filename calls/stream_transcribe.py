@@ -236,6 +236,7 @@ async def send_audio(
 
 async def receive_transcript(
     ws: aiohttp.ClientWebSocketResponse,
+    output_path: str = None,
 ) -> str:
     """Listen for transcript and VAD messages from Gradium concurrently.
 
@@ -244,9 +245,13 @@ async def receive_transcript(
       - "end_text" messages: speaker turn boundaries — we print a newline
       - "step" messages: VAD events (not printed, but available for debugging)
 
+    If output_path is provided, each completed turn is written to the file
+    immediately so the Flask dashboard can read it in real time.
+
     Returns the accumulated transcript string.
     """
     full_transcript = ""
+    current_line = ""
 
     async for msg in ws:
         if msg.type == aiohttp.WSMsgType.TEXT:
@@ -258,20 +263,22 @@ async def receive_transcript(
                 text = data.get("text", "")
                 start_s = data.get("start_s", 0)
                 print(f"      [TRANSCRIPT] {start_s:6.2f}s | {text}")
-                full_transcript += text + " "
+                current_line += " " + text
 
             elif msg_type == "end_text":
-                # Speaker finished a turn — separate sentences with a newline
+                # Speaker finished a turn — flush the line
                 stop_s = data.get("stop_s", 0)
                 print(f"      [END TURN   ] {stop_s:.2f}s")
-                full_transcript = full_transcript.strip() + "\n"
+                if current_line.strip():
+                    full_transcript += current_line.strip() + "\n"
+                    # Write immediately to file so Flask can read it in real time
+                    if output_path:
+                        with open(output_path, "a", encoding="utf-8") as f:
+                            f.write(current_line.strip() + "\n")
+                    current_line = ""
 
             elif msg_type == "step":
                 # VAD step — not printed to avoid clutter, but available
-                # You can uncomment this to see VAD activity:
-                # vad = data.get("vad", [])
-                # if vad and vad[-1].get("inactivity_prob", 0) > 0.5:
-                #     print(f"      [VAD] Speaker pause detected")
                 pass
 
             elif msg_type == "flushed":
@@ -290,23 +297,37 @@ async def receive_transcript(
             print("      WebSocket connection closed", file=sys.stderr)
             break
 
+    # Flush any remaining text that didn't end with end_text
+    if current_line.strip():
+        full_transcript += current_line.strip() + "\n"
+        if output_path:
+            with open(output_path, "a", encoding="utf-8") as f:
+                f.write(current_line.strip() + "\n")
+
     return full_transcript.strip()
 
 
 # ─── Step 5: Save transcript and finish ─────────────────────────────────────────
 
-def save_transcript(transcript: str, duration: float, output_path: str = None) -> str:
-    """Save the accumulated transcript to a file with a header."""
+def save_transcript(transcript: str, duration: float, output_path: str) -> str:
+    """Prepend a header summary to the transcript file.
+
+    The transcript lines are already written incrementally by receive_transcript().
+    This function reads the file, prepends the header, and writes it back.
+    """
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     word_count = len(transcript.split()) if transcript.strip() else 0
 
-    if output_path is None:
-        output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "transcript.txt")
+    # Read the incrementally-written content
+    with open(output_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Rewrite with header on top
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(f"Transcript — {timestamp}\n")
         f.write(f"Duration: {duration:.1f}s | Words: {word_count}\n")
         f.write("=" * 60 + "\n\n")
-        f.write(transcript + "\n")
+        f.write(content)
 
     print(f"\n[5/5] Transcript saved!")
     print(f"      Duration streamed: {duration:.1f}s")
@@ -348,6 +369,16 @@ async def main():
     # Step 1: Load and prepare audio
     pcm_data, sample_rate, duration = load_and_prepare_wav(input_path)
 
+    # Determine output path and clear it so incremental writes start fresh
+    if args.output is None:
+        output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "transcript.txt")
+    else:
+        output_path = args.output
+
+    # Clear the output file so the dashboard sees a fresh transcript
+    with open(output_path, "w", encoding="utf-8") as f:
+        pass
+
     transcript = ""
 
     try:
@@ -363,16 +394,11 @@ async def main():
             # Step 4: Now start concurrent send + receive.
             # send_audio() ONLY writes to the WebSocket (never reads).
             # receive_transcript() is the SOLE reader for the rest of the session.
-            # asyncio.gather runs both at the same time so we see live transcript
-            # output as audio chunks are being sent.
-            #
-            # If send_audio() hits a ConnectionClosed error, it returns early.
-            # receive_transcript() will see the closed connection and also return
-            # with whatever transcript it collected. asyncio.gather waits for
-            # BOTH to finish, so we always get the full transcript even on early close.
+            # It also writes each turn to the output file immediately so the
+            # Flask dashboard can read transcript lines in real time.
             _, transcript = await asyncio.gather(
                 send_audio(ws, pcm_data, duration),
-                receive_transcript(ws),
+                receive_transcript(ws, output_path),
             )
         except Exception as e:
             # Catch-all for truly unexpected errors (not connection close)
@@ -385,14 +411,14 @@ async def main():
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
 
-    # Step 5: Save transcript — even if something failed mid-stream,
-    # we save whatever we collected.
+    # Step 5: Save header summary on top of the incrementally-written transcript.
+    # The transcript lines are already in the file from receive_transcript(),
+    # so we prepend a header with metadata.
     if not transcript.strip():
         print("\nNo transcript text received from Gradium.", file=sys.stderr)
-        # Still create the file so the user knows the script ran
         transcript = "(no transcript received — connection may have closed early)"
 
-    save_transcript(transcript, duration, args.output)
+    save_transcript(transcript, duration, output_path)
 
 
 if __name__ == "__main__":

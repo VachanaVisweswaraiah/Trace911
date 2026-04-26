@@ -1,0 +1,479 @@
+WER Metrics Report — 2026-04-25T21:46:08.623827
+==================================================
+
+Clean file:      abingdon_fire_911_1_cleaned.wav
+Noisy file:       abingdon_fire_911_1.mp3
+Clean words:      278
+Noisy words:      286
+WER:              34.17%
+
+Clean transcript:
+yeah, we
+got
+a
+fire
+down
+here.
+it's
+route
+seven
+right
+here
+to
+abington.
+seven
+and
+nothing
+can
+run.
+yeah,
+right
+down
+below
+the
+compass
+funeral
+home.
+and
+what's on
+fire?
+yeah,
+their
+kids
+in the
+house
+are
+here
+hard.
+they
+have
+to
+go
+fire?
+the
+house
+on
+fire,
+people
+in
+there,
+dear.
+okay.
+do
+you
+see
+flames
+and
+smoke?
+yeah,
+flames,
+smoke,
+yeah,
+people
+power
+on.
+come
+on,
+please.
+all
+right.
+do
+you
+have
+direct
+address?
+ma'am?
+yes, do you
+have
+a
+direct
+address?
+i
+don't know the
+address. is
+that
+down
+to
+local
+compass
+at
+home?
+the
+kid
+didn't yell at
+me
+anymore.
+and
+you
+said
+flames are
+visible?
+yeah,
+flames
+are.
+yes,
+hurry
+on.
+yeah,
+smokes are
+going
+out
+of
+house.
+basically,
+what was
+the
+compass?
+is
+it
+one
+seven?
+yeah,
+right
+seven.
+yes,
+please,
+dear.
+that
+was
+the
+compass.
+okay,
+somebody
+says
+back
+in the
+fire
+department.
+okay.
+try
+to
+enter
+yourself,
+okay?
+yes.
+do
+not
+go
+in
+there
+yourself.
+yeah.
+let
+any
+other
+bystanders
+go in.
+okay.
+okay.
+and
+if
+anything
+changes, I want you to
+call me
+back
+immediately.
+we
+can't do
+nothing.
+they
+said
+don't do
+nothing.
+all
+right,
+call me
+back
+immediately.
+yeah.
+we
+can't get in
+there.
+oh,
+this
+is
+scary.
+so
+is
+there
+any
+way
+that
+you
+can
+get
+me
+an
+address?
+okay,
+so we
+can
+get the
+fire
+department
+right
+there.
+yeah. do
+you see
+a
+mailbox?
+yeah,
+go
+ahead.
+what's the address
+here,
+dear?
+oh,
+it's right. it's right below the
+mcconough's, hon.
+there.
+yeah. what
+is
+it?
+3401.
+3401.
+yeah.
+yeah.
+okay.
+well,
+we're starting the fire
+department.
+okay.
+back
+in
+there.
+anything
+changes.
+okay.
+
+Noisy transcript:
+"Flood
+3991,
+notification of your
+emergency?"
+"Yeah, we got a fire
+down
+here.
+It's on
+Route
+7.
+We're out here to
+Abington.
+Route
+7
+and
+Abington
+Road?
+Yeah,
+right
+down
+below
+Macumbas
+Funeral
+Hole.
+And
+what's on
+fire?
+Yeah,
+there's kids
+in the
+house
+in
+here
+Howard.
+The
+house
+is
+on
+fire?
+The
+house
+is on
+fire.
+People
+in
+there,
+dear.
+Okay.
+Do
+you
+see
+flames
+and
+smoke?
+Yeah,
+flames,
+smoke.
+Yeah,
+people's hollering on.
+Come
+on,
+please.
+All
+right.
+Do
+you
+have
+a
+direct
+address?
+Yeah.
+Yes. Do you
+have
+a
+direct
+address?
+I
+don't know the
+address. Is that
+down
+below
+Macumbas
+home?
+See,
+y'all
+now.
+The
+kids
+ain't
+yelling
+no
+more.
+And you
+said
+flames
+are
+visible?
+Yeah,
+flames are.
+Yes,
+hurry,
+hon.
+Yeah,
+smokes is
+rolling
+out
+of the
+house.
+That's
+below
+Macumbas? Is it
+on
+the
+11th? Yeah,
+right
+down.
+Yes,
+please,
+dear.
+Right
+below
+Macumbas.
+Okay,
+somebody
+says
+back
+in the fire
+department.
+Okay.
+Try to
+enter
+yourself,
+okay?
+Yes.
+Do
+not
+go
+in
+there
+yourself
+and
+do
+not
+any
+other
+bystanders
+going.
+Okay.
+Okay.
+And
+if
+anything
+changes, I want you to
+call me
+back
+in
+any
+way.
+We
+can't do
+nothing.
+They
+said
+don't do
+nothing.
+All
+right,
+call me
+back
+in any
+way.
+We
+can't get in
+there.
+Oh,
+this
+is
+changing.
+So
+is
+there
+any
+way
+that
+you
+can
+get
+me
+an
+address?
+Okay,
+so we
+can
+get the
+fire
+department
+right
+there.
+Yeah. Do
+you see
+a
+mailbox?
+Yeah,
+I'm going
+in.
+What's the address
+here,
+dear?
+Oh,
+it's right
+below
+Macumbas, hon.
+You
+there?
+Yeah.
+3401.
+3401.
+Yeah.
+Yes.
+Okay.
+All
+right. Well,
+we're starting the fire
+department.
+Back
+in
+Minnesota.
+Anything
+changes?
+Okay.

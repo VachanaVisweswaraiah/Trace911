@@ -18,22 +18,39 @@ Usage:
 import argparse
 import json
 import os
+import subprocess
+import sys
+import threading
+import time
 from datetime import datetime
 
+from dotenv import load_dotenv
 from flask import Flask, jsonify
 from flask_cors import CORS
-from dotenv import load_dotenv
 
 # ─── File paths (overridable via .env) ─────────────────────────────────────────
-# These point to the data files produced by the other scripts in the pipeline.
-# You can override any of these by setting the env vars in .env.
+# server.py lives inside calls/ so BASE_DIR is already the calls directory.
 
 load_dotenv()
 
-TRANSCRIPT_FILE = os.environ.get("TRANSCRIPT_FILE", "calls/transcript.txt")
-ANALYSIS_FILE   = os.environ.get("ANALYSIS_FILE",   "calls/analysis_log.json")
-METRICS_FILE    = os.environ.get("METRICS_FILE",     "calls/metrics.txt")
-PORT            = int(os.environ.get("PORT", "5000"))
+CALLS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# File paths — all inside CALLS_DIR
+TRANSCRIPT_FILE = os.environ.get(
+    "TRANSCRIPT_FILE", os.path.join(CALLS_DIR, "transcript.txt")
+)
+ANALYSIS_FILE = os.environ.get(
+    "ANALYSIS_FILE", os.path.join(CALLS_DIR, "analysis_log.json")
+)
+METRICS_FILE = os.environ.get("METRICS_FILE", os.path.join(CALLS_DIR, "metrics.txt"))
+DEMO_AUDIO_FILE = os.path.join(CALLS_DIR, "enhanced_audio.wav")
+TTS_STATUS_FILE = os.path.join(CALLS_DIR, "tts_status.txt")
+
+# Subprocess paths
+TRANSCRIBE_SCRIPT = os.path.join(CALLS_DIR, "stream_transcribe.py")
+ANALYZE_SCRIPT = os.path.join(CALLS_DIR, "analyze.py")
+
+PORT = int(os.environ.get("PORT", "5000"))
 
 # ─── Flask app setup ───────────────────────────────────────────────────────────
 # CORS (Cross-Origin Resource Sharing) is required because the Lovable dashboard
@@ -48,6 +65,7 @@ CORS(app)  # Allow all origins — safe for local dev
 # Reads transcript.txt and returns the last 20 lines of clean text.
 # The transcript file has lines like: [TRANSCRIPT  0:03] yeah we got a fire
 # We strip the timestamp prefix and return only the spoken words.
+
 
 @app.route("/transcript")
 def get_transcript():
@@ -68,7 +86,11 @@ def get_transcript():
             if "]" in line:
                 line = line.split("]", 1)[1].strip()
             # Skip header lines (timestamp, duration, === separator)
-            if line.startswith("Transcript") or line.startswith("Duration") or line.startswith("==="):
+            if (
+                line.startswith("Transcript")
+                or line.startswith("Duration")
+                or line.startswith("===")
+            ):
                 continue
             if line:
                 clean_lines.append(line)
@@ -77,11 +99,13 @@ def get_transcript():
         recent_lines = clean_lines[-20:]
         total_words = sum(len(line.split()) for line in clean_lines)
 
-        return jsonify({
-            "success": True,
-            "lines": recent_lines,
-            "total_words": total_words,
-        })
+        return jsonify(
+            {
+                "success": True,
+                "lines": recent_lines,
+                "total_words": total_words,
+            }
+        )
 
     except Exception:
         return jsonify({"success": False, "lines": [], "total_words": 0})
@@ -90,6 +114,7 @@ def get_transcript():
 # ─── Endpoint 2: GET /analysis ─────────────────────────────────────────────────
 # Reads analysis_log.json and returns the most recent analysis entry.
 # The file is a JSON array — we take the last item for the latest results.
+
 
 @app.route("/analysis")
 def get_analysis():
@@ -122,20 +147,25 @@ def get_analysis():
         latest = log[-1]
         analysis = latest.get("analysis", {})
 
-        return jsonify({
-            "success": True,
-            "sentiment": analysis.get("sentiment", 0),
-            "urgency": analysis.get("urgency", "unknown"),
-            "emergency_type": analysis.get("emergency_type", "unknown"),
-            "summary": analysis.get("summary", ""),
-            "dispatcher_action": analysis.get("dispatcher_action", ""),
-            "key_info": analysis.get("key_info", {
-                "address": None,
-                "people_involved": None,
-                "immediate_danger": False,
-            }),
-            "timestamp": latest.get("timestamp", ""),
-        })
+        return jsonify(
+            {
+                "success": True,
+                "sentiment": analysis.get("sentiment", 0),
+                "urgency": analysis.get("urgency", "unknown"),
+                "emergency_type": analysis.get("emergency_type", "unknown"),
+                "summary": analysis.get("summary", ""),
+                "dispatcher_action": analysis.get("dispatcher_action", ""),
+                "key_info": analysis.get(
+                    "key_info",
+                    {
+                        "address": None,
+                        "people_involved": None,
+                        "immediate_danger": False,
+                    },
+                ),
+                "timestamp": latest.get("timestamp", ""),
+            }
+        )
 
     except Exception:
         return jsonify(default_response)
@@ -143,11 +173,7 @@ def get_analysis():
 
 # ─── Endpoint 3: GET /metrics ───────────────────────────────────────────────────
 # Reads metrics.txt and parses WER numbers from the text file.
-# The file has lines like:
-#   Clean words:      278
-#   Noisy words:      286
-#   WER:              3.1%
-# We parse these with simple string splitting.
+
 
 @app.route("/metrics")
 def get_metrics():
@@ -200,15 +226,17 @@ def get_metrics():
         # wer_with_aic would require a ground-truth reference transcript.
         wer_without_aic = wer_value
 
-        return jsonify({
-            "success": True,
-            "wer_with_aic": 0,
-            "wer_without_aic": round(wer_without_aic, 2),
-            "improvement": 0,
-            "error_reduction_pct": 0,
-            "words_clean": words_clean,
-            "words_noisy": words_noisy,
-        })
+        return jsonify(
+            {
+                "success": True,
+                "wer_with_aic": 0,
+                "wer_without_aic": round(wer_without_aic, 2),
+                "improvement": 0,
+                "error_reduction_pct": 0,
+                "words_clean": words_clean,
+                "words_noisy": words_noisy,
+            }
+        )
 
     except Exception:
         return jsonify(default_response)
@@ -216,6 +244,7 @@ def get_metrics():
 
 # ─── Endpoint 4: GET /status ───────────────────────────────────────────────────
 # Health check — shows whether each data file exists and when it was last updated.
+
 
 @app.route("/status")
 def get_status():
@@ -233,26 +262,148 @@ def get_status():
             else:
                 files_info[label] = {"exists": False, "last_updated": None}
 
-        return jsonify({
-            "success": True,
-            "status": "running",
-            "files": files_info,
-        })
+        return jsonify(
+            {
+                "success": True,
+                "status": "running",
+                "files": files_info,
+            }
+        )
 
     except Exception:
-        return jsonify({
-            "success": True,
-            "status": "running",
-            "files": {
-                "transcript": {"exists": False, "last_updated": None},
-                "analysis":   {"exists": False, "last_updated": None},
-                "metrics":    {"exists": False, "last_updated": None},
-            },
-        })
+        return jsonify(
+            {
+                "success": True,
+                "status": "running",
+                "files": {
+                    "transcript": {"exists": False, "last_updated": None},
+                    "analysis": {"exists": False, "last_updated": None},
+                    "metrics": {"exists": False, "last_updated": None},
+                },
+            }
+        )
+
+
+# ─── Endpoint 5: GET /tts_status ────────────────────────────────────────────────
+# Check whether the TTS engine is currently speaking.
+
+
+@app.route("/tts_status")
+def get_tts_status():
+    try:
+        if os.path.isfile(TTS_STATUS_FILE):
+            with open(TTS_STATUS_FILE, "r") as f:
+                status = f.read().strip()
+            return jsonify({"speaking": status == "speaking"})
+    except Exception:
+        pass
+    return jsonify({"speaking": False})
+
+
+# ─── Endpoint 6: POST /start ───────────────────────────────────────────────────
+# Triggered by the Demo Call button on the dashboard.
+# Starts the full pipeline: transcription first, then analysis after a short delay.
+
+# Track running processes so we can stop them later
+running_processes = []
+
+
+@app.route("/start", methods=["POST"])
+def start_demo():
+    global running_processes
+
+    # Kill any previously running pipeline first
+    for proc in running_processes:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+    running_processes = []
+
+    # Clear old transcript so dashboard starts fresh
+    transcript_path = os.path.join(CALLS_DIR, "transcript.txt")
+    if os.path.isfile(transcript_path):
+        open(transcript_path, "w").close()
+
+    def run_pipeline():
+        global running_processes
+
+        # Start transcription with absolute paths
+        transcribe_proc = subprocess.Popen(
+            [sys.executable, TRANSCRIBE_SCRIPT, DEMO_AUDIO_FILE], cwd=CALLS_DIR
+        )
+        running_processes.append(transcribe_proc)
+
+        # Wait 3 seconds for transcript.txt to be created
+        time.sleep(3)
+
+        # Start Gemini analysis with absolute paths
+        analyze_proc = subprocess.Popen(
+            [sys.executable, ANALYZE_SCRIPT, "transcript.txt"], cwd=CALLS_DIR
+        )
+        running_processes.append(analyze_proc)
+
+        # Wait for both to finish
+        transcribe_proc.wait()
+        analyze_proc.terminate()
+
+    # Run in background thread so Flask doesn't block
+    threading.Thread(target=run_pipeline, daemon=True).start()
+
+    return jsonify({"success": True, "message": "Demo call started"})
+
+
+# ─── Endpoint 6: POST /stop ───────────────────────────────────────────────────
+# Stops all running pipeline processes cleanly.
+
+
+@app.route("/stop", methods=["POST"])
+def stop_demo():
+    global running_processes
+    for proc in running_processes:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+    running_processes = []
+    return jsonify({"success": True, "message": "Demo stopped"})
+
+
+# ─── Endpoint 7: POST /reset ──────────────────────────────────────────────────
+# Stops all processes and deletes generated files completely for a fresh start.
+
+
+@app.route("/reset", methods=["POST"])
+def reset_demo():
+    global running_processes
+
+    # Step 1 — Kill any running pipeline processes
+    for proc in running_processes:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+    running_processes = []
+
+    # Step 2 — Delete generated files completely
+    files_to_delete = [
+        os.path.join(CALLS_DIR, "transcript.txt"),
+        os.path.join(CALLS_DIR, "analysis_log.json"),
+        os.path.join(CALLS_DIR, "tts_status.txt"),
+    ]
+
+    for filepath in files_to_delete:
+        if os.path.isfile(filepath):
+            os.remove(filepath)
+            print(f"[Reset] Deleted: {filepath}")
+
+    print("[Reset] Demo reset complete — ready for next call")
+    return jsonify({"success": True, "message": "Demo reset complete"})
 
 
 # ─── Test mode ─────────────────────────────────────────────────────────────────
 # Calls all 4 endpoints locally and prints results without starting the server.
+
 
 def run_test():
     """Test all endpoints by calling them directly through Flask's test client."""
@@ -271,7 +422,9 @@ def run_test():
     data = resp.get_json()
     line_count = len(data.get("lines", []))
     word_count = data.get("total_words", 0)
-    print(f"[TEST] GET /transcript → {'✅' if data['success'] else '❌'} {line_count} lines, {word_count} words")
+    print(
+        f"[TEST] GET /transcript → {'✅' if data['success'] else '❌'} {line_count} lines, {word_count} words"
+    )
 
     # Test /analysis
     resp = client.get("/analysis")
@@ -279,14 +432,18 @@ def run_test():
     urgency = data.get("urgency", "unknown").upper()
     etype = data.get("emergency_type", "unknown")
     address = data.get("key_info", {}).get("address") or "—"
-    print(f"[TEST] GET /analysis   → {'✅' if data['success'] else '❌'} {urgency} | {etype} | {address}")
+    print(
+        f"[TEST] GET /analysis   → {'✅' if data['success'] else '❌'} {urgency} | {etype} | {address}"
+    )
 
     # Test /metrics
     resp = client.get("/metrics")
     data = resp.get_json()
     wer_clean = data.get("wer_with_aic", 0)
     wer_noisy = data.get("wer_without_aic", 0)
-    print(f"[TEST] GET /metrics    → {'✅' if data['success'] else '❌'} WER clean: {wer_clean}% | noisy: {wer_noisy}%")
+    print(
+        f"[TEST] GET /metrics    → {'✅' if data['success'] else '❌'} WER clean: {wer_clean}% | noisy: {wer_noisy}%"
+    )
 
     print()
 
@@ -295,7 +452,9 @@ def run_test():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Trace911 Flask API Server")
-    parser.add_argument("--test", action="store_true", help="Test all endpoints without starting server")
+    parser.add_argument(
+        "--test", action="store_true", help="Test all endpoints without starting server"
+    )
     args = parser.parse_args()
 
     if args.test:
@@ -305,9 +464,13 @@ if __name__ == "__main__":
         print("[Trace911] Flask API Server")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("Endpoints:")
-        print(f"  GET http://localhost:{PORT}/transcript")
-        print(f"  GET http://localhost:{PORT}/analysis")
-        print(f"  GET http://localhost:{PORT}/metrics")
-        print(f"  GET http://localhost:{PORT}/status")
+        print(f"  GET  http://localhost:{PORT}/transcript")
+        print(f"  GET  http://localhost:{PORT}/analysis")
+        print(f"  GET  http://localhost:{PORT}/metrics")
+        print(f"  GET  http://localhost:{PORT}/status")
+        print(f"  GET  http://localhost:{PORT}/tts_status")
+        print(f"  POST http://localhost:{PORT}/start")
+        print(f"  POST http://localhost:{PORT}/stop")
+        print(f"  POST http://localhost:{PORT}/reset")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)

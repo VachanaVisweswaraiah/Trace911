@@ -1,0 +1,137 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 17% 98%;
+    --foreground: 234 33% 14%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 234 33% 14%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 234 33% 14%;
+
+    --primary: 234 33% 14%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 17% 95%;
+    --secondary-foreground: 234 33% 14%;
+
+    --muted: 210 17% 95%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 210 17% 95%;
+    --accent-foreground: 234 33% 14%;
+
+    --destructive: 354 78% 56%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 14% 92%;
+    --input: 210 14% 92%;
+    --ring: 234 33% 14%;
+
+    --radius: 0.5rem;
+
+    /* Trace911 brand */
+    --signal-red: 354 78% 56%;          /* #e63946 */
+    --signal-green: 173 58% 39%;        /* #2a9d8f */
+    --signal-blue: 210 50% 23%;         /* #1d3557 */
+    --signal-yellow: 28 87% 67%;        /* #f4a261 */
+    --signal-orange: 13 77% 62%;        /* #e76f51 */
+
+    --panel: 0 0% 100%;
+    --panel-foreground: 234 33% 14%;
+    --panel-border: 210 14% 92%;
+
+    --action-bg: 207 86% 95%;           /* #e8f4fd */
+    --summary-bg: 210 17% 95%;
+  }
+
+  .dark {
+    --background: 240 22% 5%;            /* #0a0a0f */
+    --foreground: 0 0% 94%;              /* #f0f0f0 */
+
+    --card: 240 16% 9%;                  /* #12121a */
+    --card-foreground: 0 0% 94%;
+
+    --popover: 240 16% 9%;
+    --popover-foreground: 0 0% 94%;
+
+    --primary: 0 0% 94%;
+    --primary-foreground: 240 22% 5%;
+
+    --secondary: 240 14% 13%;
+    --secondary-foreground: 0 0% 94%;
+
+    --muted: 240 14% 13%;
+    --muted-foreground: 240 5% 65%;
+
+    --accent: 240 14% 13%;
+    --accent-foreground: 0 0% 94%;
+
+    --destructive: 354 78% 56%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 16% 19%;               /* #2a2a3a */
+    --input: 240 16% 19%;
+    --ring: 0 0% 94%;
+
+    --panel: 240 16% 9%;
+    --panel-foreground: 0 0% 94%;
+    --panel-border: 240 16% 19%;
+
+    --action-bg: 210 33% 16%;            /* #1a2a3a */
+    --summary-bg: 240 16% 14%;           /* #1e1e2e */
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-background text-foreground;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+  .panel { @apply bg-card text-card-foreground border border-border rounded-lg shadow-sm; }
+}
+
+@layer utilities {
+  .live-dot {
+    @apply inline-block w-2 h-2 rounded-full bg-[hsl(var(--signal-red))];
+    box-shadow: 0 0 0 0 hsl(var(--signal-red) / 0.6);
+    animation: livePulse 1.5s ease-out infinite;
+  }
+  .critical-pulse { animation: criticalPulse 1.4s ease-in-out infinite; }
+  .fade-in-line { animation: fadeInLine 0.35s ease-out both; }
+}
+
+@keyframes livePulse {
+  0%   { box-shadow: 0 0 0 0 hsl(var(--signal-red) / 0.6); }
+  70%  { box-shadow: 0 0 0 10px hsl(var(--signal-red) / 0); }
+  100% { box-shadow: 0 0 0 0 hsl(var(--signal-red) / 0); }
+}
+
+@keyframes criticalPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.85; transform: scale(1.015); }
+}
+
+@keyframes fadeInLine {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Waveform marquee */
+@keyframes waveScrollFast {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+@keyframes waveScrollSmooth {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.wave-track-fast   { animation: waveScrollFast 3.5s linear infinite; }
+.wave-track-smooth { animation: waveScrollSmooth 5s linear infinite; }
